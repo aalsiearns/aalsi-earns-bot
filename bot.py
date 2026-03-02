@@ -1,18 +1,8 @@
-import sqlite3, random, datetime, threading, os
-from flask import Flask
+import sqlite3, random, datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-# Flask setup for Render Port Binding
-flask_app = Flask(__name__)
-@flask_app.route('/')
-def home(): return "Bot is Alive!", 200
-
-def run_flask():
-    # Render hamesha PORT environment variable deta hai
-    port = int(os.environ.get("PORT", 10000))
-    flask_app.run(host='0.0.0.0', port=port)
-
+# --- CONFIG ---
 TOKEN = "8695922978:AAFr7SRrQX-ClMwxeXE2ym3GAUhLsOLO00s"
 ADMIN_ID = 7515767909
 CHANNELS = [-1002138873616, -1002103099519, -1002252271483] 
@@ -53,12 +43,44 @@ async def verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🎁 Daily Shagun", callback_data="bonus")]]
     await query.message.edit_text("🎯 **Aalsi Mode Active!**\nSote sote lootna shuru karein.", reply_markup=InlineKeyboardMarkup(menu))
 
-# Bonus, Wallet, Refer functions same rahenge...
+async def bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.callback_query.from_user.id
+    user = get_user(user_id)
+    today = str(datetime.date.today())
+    if user[3] == today: await update.callback_query.answer("Kal aana!", show_alert=True)
+    else:
+        amt = round(random.uniform(0.5, 2.0), 2)
+        conn = sqlite3.connect('aalsiearns.db')
+        c = conn.cursor(); c.execute("UPDATE users SET balance = balance + ?, last_bonus = ? WHERE user_id = ?", (amt, today, user_id))
+        conn.commit(); conn.close()
+        await update.callback_query.message.reply_text(f"🎊 Shagun mila: ₹{amt}")
+
+async def wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = get_user(update.callback_query.from_user.id)
+    await update.callback_query.message.reply_text(f"💳 Wallet: ₹{user[1]}")
+
+async def refer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.callback_query.from_user.id
+    bot_un = (await context.bot.get_me()).username
+    await update.callback_query.message.reply_text(f"🤝 Link: `t.me/{bot_un}?start={user_id}`", parse_mode="Markdown")
+
+async def sendall(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id == ADMIN_ID:
+        msg = " ".join(context.args)
+        conn = sqlite3.connect('aalsiearns.db')
+        c = conn.cursor(); c.execute("SELECT user_id FROM users"); users = c.fetchall(); conn.close()
+        for u in users:
+            try: await context.bot.send_message(u[0], msg)
+            except: pass
+        await update.message.reply_text("Done!")
 
 if __name__ == '__main__':
-    threading.Thread(target=run_flask).start() # Render ko khush rakhne ke liye
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(verify, "verify"))
-    # Baki handlers add kar dena...
+    app.add_handler(CommandHandler("sendall", sendall))
+    app.add_handler(CallbackQueryHandler(verify, pattern="verify"))
+    app.add_handler(CallbackQueryHandler(wallet, pattern="wallet"))
+    app.add_handler(CallbackQueryHandler(bonus, pattern="bonus"))
+    app.add_handler(CallbackQueryHandler(refer, pattern="refer"))
+    print("Aalsi Bot is alive...")
     app.run_polling()
