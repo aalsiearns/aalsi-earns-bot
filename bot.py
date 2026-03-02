@@ -15,7 +15,7 @@ def run_flask():
     flask_app.run(host='0.0.0.0', port=port)
 
 # --- 2. CONFIGURATION ---
-TOKEN = "8695922978:AAEDgTfzv33sT3s7qsg858TO5DXXQBq87-k" 
+TOKEN = "8695922978:AAEDgTfzv33sT3s7qsg858TO5DXXQBq87-k
 ADMIN_ID = 7515767909
 CHANNELS = [-1002138873616, -1002103099519, -1002252271483]
 INVITE_LINKS = ["https://t.me/+gTZ_cjnU5GczNTg1", "https://t.me/+F9rY-oqYqqo3MjU1", "https://t.me/+cCC_JP8Q2f0zYjI0"]
