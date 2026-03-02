@@ -1,32 +1,33 @@
-import sqlite3, random, datetime
+import sqlite3, random, datetime, threading
+from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-# --- CONFIG (Details Pre-filled) ---
+# Flask setup for Cron-job
+flask_app = Flask(__name__)
+@flask_app.route('/')
+def home(): return "Aalsi Bot is Awake!", 200
+
+def run_flask():
+    flask_app.run(host='0.0.0.0', port=10000)
+
 TOKEN = "8695922978:AAFr7SRrQX-ClMwxeXE2ym3GAUhLsOLO00s"
 ADMIN_ID = 7515767909
 CHANNELS = [-1002138873616, -1002103099519, -1002252271483] 
-INVITE_LINKS = [
-    "https://t.me/+gTZ_cjnU5GczNTg1", 
-    "https://t.me/+F9rY-oqYqqo3MjU1", 
-    "https://t.me/+cCC_JP8Q2f0zYjI0"
-]
+INVITE_LINKS = ["https://t.me/+gTZ_cjnU5GczNTg1", "https://t.me/+F9rY-oqYqqo3MjU1", "https://t.me/+cCC_JP8Q2f0zYjI0"]
 
 def init_db():
     conn = sqlite3.connect('aalsiearns.db')
     c = conn.cursor()
     c.execute('CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, balance REAL, referred_by INTEGER, last_bonus TEXT, joined INTEGER)')
-    conn.commit()
-    conn.close()
+    conn.commit(); conn.close()
 
 init_db()
 
 def get_user(user_id):
     conn = sqlite3.connect('aalsiearns.db')
-    c = conn.cursor()
-    c.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
-    res = c.fetchone()
-    conn.close()
+    c = conn.cursor(); c.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
+    res = c.fetchone(); conn.close()
     return res
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -37,12 +38,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         c = conn.cursor()
         c.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?)", (user_id, 0.0, referrer, "None", 0))
         if referrer:
-            try:
-                c.execute("UPDATE users SET balance = balance + 3 WHERE user_id = ?", (referrer,))
+            try: c.execute("UPDATE users SET balance = balance + 3 WHERE user_id = ?", (referrer,))
             except: pass
-        conn.commit()
-        conn.close()
-    
+        conn.commit(); conn.close()
     keyboard = [[InlineKeyboardButton(f"Join Channel {i+1} ⚡", url=l)] for i, l in enumerate(INVITE_LINKS)]
     keyboard.append([InlineKeyboardButton("✅ Verify & Start", callback_data="verify")])
     await update.message.reply_text(f"💰 **Aalsi Earns Loot**\nJoin all channels to start earning:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
@@ -57,26 +55,22 @@ async def bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.callback_query.from_user.id
     user = get_user(user_id)
     today = str(datetime.date.today())
-    if user[3] == today:
-        await update.callback_query.answer("Abe aalsi! Aaj ka shagun mil gaya. Kal aana!", show_alert=True)
+    if user[3] == today: await update.callback_query.answer("Kal aana!", show_alert=True)
     else:
         amt = round(random.uniform(0.5, 2.0), 2)
         conn = sqlite3.connect('aalsiearns.db')
-        c = conn.cursor()
-        c.execute("UPDATE users SET balance = balance + ?, last_bonus = ? WHERE user_id = ?", (amt, today, user_id))
-        conn.commit()
-        conn.close()
-        await update.callback_query.message.reply_text(f"🎊 Aapko aaj ₹{amt} ka Shagun mila!")
+        c = conn.cursor(); c.execute("UPDATE users SET balance = balance + ?, last_bonus = ? WHERE user_id = ?", (amt, today, user_id))
+        conn.commit(); conn.close()
+        await update.callback_query.message.reply_text(f"🎊 Shagun mila: ₹{amt}")
 
 async def wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_user(update.callback_query.from_user.id)
-    await update.callback_query.message.reply_text(f"💳 **Wallet Balance:** ₹{user[1]}")
+    await update.callback_query.message.reply_text(f"💳 Wallet: ₹{user[1]}")
 
 async def refer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.callback_query.from_user.id
     bot_un = (await context.bot.get_me()).username
-    link = f"https://t.me/{bot_un}?start={user_id}"
-    await update.callback_query.message.reply_text(f"🤝 **Per Refer: ₹3**\n\nLink share karein:\n`{link}`", parse_mode="Markdown")
+    await update.callback_query.message.reply_text(f"🤝 Link: `t.me/{bot_un}?start={user_id}`", parse_mode="Markdown")
 
 async def sendall(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id == ADMIN_ID:
@@ -89,12 +83,12 @@ async def sendall(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Done!")
 
 if __name__ == '__main__':
+    threading.Thread(target=run_flask).start() # Starts the web server
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("sendall", sendall))
-    app.add_handler(CallbackQueryHandler(verify, pattern="verify"))
-    app.add_handler(CallbackQueryHandler(wallet, pattern="wallet"))
-    app.add_handler(CallbackQueryHandler(bonus, pattern="bonus"))
-    app.add_handler(CallbackQueryHandler(refer, pattern="refer"))
-    print("Aalsi Bot is alive...")
+    app.add_handler(CallbackQueryHandler(verify, "verify"))
+    app.add_handler(CallbackQueryHandler(wallet, "wallet"))
+    app.add_handler(CallbackQueryHandler(bonus, "bonus"))
+    app.add_handler(CallbackQueryHandler(refer, "refer"))
     app.run_polling()
