@@ -4,28 +4,28 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from pymongo import MongoClient
 
-# --- 1. RENDER PORT FIX (For 24/7 Uptime) ---
+# --- 1. RENDER SERVER (24/7 UPTIME) ---
 flask_app = Flask(__name__)
 @flask_app.route('/')
-def home(): return "Aalsi Bot: MongoDB Permanent Active!", 200
+def home(): return "Aalsi Bot: All Systems Nominal!", 200
+
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     flask_app.run(host='0.0.0.0', port=port)
 
-# --- 2. CONFIG & DATABASE ---
+# --- 2. CONFIGURATION ---
 TOKEN = "8695922978:AAFr7SRrQX-ClMwxeXE2ym3GAUhLsOLO00s"
 ADMIN_ID = 7515767909
 CHANNELS = [-1002138873616, -1002103099519, -1002252271483]
 INVITE_LINKS = ["https://t.me/+gTZ_cjnU5GczNTg1", "https://t.me/+F9rY-oqYqqo3MjU1", "https://t.me/+cCC_JP8Q2f0zYjI0"]
 
-# Tera Permanent Database Link 👇
+# MongoDB Connection
 MONGO_URL = "mongodb+srv://aalsiearns:momlover1998@cluster0.t6rky3s.mongodb.net/?appName=Cluster0"
-
 client = MongoClient(MONGO_URL)
 db = client['aalsiearns_db']
 users_col = db['users']
 
-# --- 3. MEMBERSHIP CHECK ---
+# --- 3. HELPERS ---
 async def is_subscribed(bot, user_id):
     for channel_id in CHANNELS:
         try:
@@ -33,42 +33,6 @@ async def is_subscribed(bot, user_id):
             if member.status in ['left', 'kicked']: return False
         except: return False
     return True
-
-# --- 4. COMMANDS ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    referrer = int(context.args[0]) if context.args else None
-    
-    # Check if user exists in MongoDB
-    user = users_col.find_one({"user_id": user_id})
-    if not user:
-        users_col.insert_one({
-            "user_id": user_id, 
-            "balance": 0.0, 
-            "referred_by": referrer, 
-            "last_bonus": "None"
-        })
-        if referrer:
-            users_col.update_one({"user_id": referrer}, {"$inc": {"balance": 3.0}})
-
-    if await is_subscribed(context.bot, user_id):
-        return await show_menu(update, context)
-
-    keyboard = [[InlineKeyboardButton(f"Join Channel {i+1} ⚡", url=l)] for i, l in enumerate(INVITE_LINKS)]
-    keyboard.append([InlineKeyboardButton("✅ Verify & Start Loot", callback_data="verify")])
-    text = "💰 **Aalsi Earns Loot**\nJoin all channels to start earning!"
-    
-    if update.callback_query:
-        await update.callback_query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-    else:
-        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-
-async def verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    if await is_subscribed(context.bot, query.from_user.id):
-        await show_menu(update, context)
-    else:
-        await query.answer("❌ Abe Aalsi! Pehle join kar.", show_alert=True)
 
 async def show_menu(update, context):
     menu = [[InlineKeyboardButton("💰 Wallet", callback_data="wallet"), InlineKeyboardButton("🤝 Refer", callback_data="refer")],
@@ -79,6 +43,32 @@ async def show_menu(update, context):
     else:
         await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(menu))
 
+# --- 4. COMMANDS ---
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    referrer = int(context.args[0]) if context.args else None
+    
+    # Save user to MongoDB
+    user = users_col.find_one({"user_id": user_id})
+    if not user:
+        users_col.insert_one({"user_id": user_id, "balance": 0.0, "referred_by": referrer, "last_bonus": "None"})
+        if referrer:
+            users_col.update_one({"user_id": referrer}, {"$inc": {"balance": 3.0}})
+
+    if await is_subscribed(context.bot, user_id):
+        return await show_menu(update, context)
+
+    # Force Join UI
+    keyboard = [[InlineKeyboardButton(f"Join Channel {i+1} ⚡", url=l)] for i, l in enumerate(INVITE_LINKS)]
+    keyboard.append([InlineKeyboardButton("✅ Verify & Start Loot", callback_data="verify")])
+    await update.message.reply_text("💰 **Aalsi Earns Loot**\nJoin all channels to start earning!", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+async def verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await is_subscribed(context.bot, update.callback_query.from_user.id):
+        await show_menu(update, context)
+    else:
+        await update.callback_query.answer("❌ Abe Aalsi! Pehle join kar.", show_alert=True)
+
 async def bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.callback_query.from_user.id
     user = users_col.find_one({"user_id": user_id})
@@ -88,22 +78,43 @@ async def bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         amt = round(random.uniform(0.5, 2.0), 2)
         users_col.update_one({"user_id": user_id}, {"$inc": {"balance": amt}, "$set": {"last_bonus": today}})
-        await update.callback_query.message.reply_text(f"🎊 Aapko aaj ₹{amt} ka Shagun mila!")
+        await update.callback_query.message.reply_text(f"🎊 Shagun mila: ₹{amt}")
 
 async def wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = users_col.find_one({"user_id": update.callback_query.from_user.id})
     await update.callback_query.message.reply_text(f"💳 **Wallet Balance:** ₹{user['balance']}")
 
 async def refer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.callback_query.from_user.id
     bot_un = (await context.bot.get_me()).username
-    link = f"https://t.me/{bot_un}?start={user_id}"
+    link = f"https://t.me/{bot_un}?start={update.callback_query.from_user.id}"
     await update.callback_query.message.reply_text(f"🤝 **Per Refer: ₹3**\n\nLink:\n`{link}`", parse_mode="Markdown")
 
+# --- 5. ADMIN TOOLS ---
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id == ADMIN_ID:
+        count = users_col.count_documents({})
+        await update.message.reply_text(f"📊 **Bot Stats:**\nTotal Users: {count}")
+
+async def sendall(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id == ADMIN_ID:
+        msg = " ".join(context.args)
+        if not msg: return await update.message.reply_text("Message toh likh!")
+        users = users_col.find({}, {"user_id": 1})
+        count = 0
+        for u in users:
+            try:
+                await context.bot.send_message(u['user_id'], msg)
+                count += 1
+            except: pass
+        await update.message.reply_text(f"✅ Message sent to {count} users.")
+
+# --- 6. MAIN ---
 if __name__ == '__main__':
     threading.Thread(target=run_flask).start()
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(CommandHandler("sendall", sendall))
     app.add_handler(CallbackQueryHandler(verify, pattern="verify"))
     app.add_handler(CallbackQueryHandler(wallet, pattern="wallet"))
     app.add_handler(CallbackQueryHandler(bonus, pattern="bonus"))
